@@ -19,6 +19,7 @@ class Settings:
     max_tokens: int
     mode: str
     security_url: str | None
+    policy_path: str | None
     api_key: str | None
     rate_limit: int
     rate_window: int
@@ -37,6 +38,7 @@ class Settings:
             max_tokens=_int("MLX_SENTINEL_MAX_TOKENS", 512, 1),
             mode=mode,
             security_url=os.environ.get("MLX_SENTINEL_SECURITY_URL"),
+            policy_path=os.environ.get("MLX_SENTINEL_POLICY_PATH"),
             api_key=os.environ.get("MLX_SENTINEL_API_KEY") or None,
             rate_limit=_int("MLX_SENTINEL_RATE_LIMIT", 60, 1),
             rate_window=_int("MLX_SENTINEL_RATE_WINDOW", 60, 1),

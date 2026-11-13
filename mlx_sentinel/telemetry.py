@@ -10,6 +10,8 @@ import time
 import uuid
 from collections import deque
 
+from .policy import Policy
+
 
 @dataclass
 class KVStats:
@@ -100,10 +102,11 @@ class IsolationForestLite:
 
 
 class Guard:
-    """Hybrid IPS with per-model baselines, ensemble scoring, local ML and replay."""
+    """Hybrid security monitor with per-model baselines, ensemble scoring, local ML and replay."""
 
-    def __init__(self, mode: str = "guard", model_path: str | None = None, journal_path: str | None = None) -> None:
+    def __init__(self, mode: str = "guard", model_path: str | None = None, journal_path: str | None = None, policy_path: str | None = None) -> None:
         self.mode = mode
+        self.policy = Policy.load(policy_path)
         self.count = 0
         self.blocked = 0
         self._lock = threading.RLock()
@@ -173,9 +176,12 @@ class Guard:
                 score = min(score, 0.2)
                 reasons.append("ml-benign-correction")
         level = self.level(score, reasons)
-        hard = any("injection" in r or "jailbreak" in r or "invalid" in r or "blocked" in r for r in reasons)
-        would_block = hard or (self.mode in {"enforce", "guard"} and level in ({"high", "critical"} if self.mode == "enforce" else {"critical"}))
-        blocked = would_block and self.mode != "observe" and self.mode != "shadow"
+        policy_action = self.policy.action_for(reasons)
+        hard = policy_action == "block" and any("injection" in r or "jailbreak" in r or "invalid" in r or "blocked" in r for r in reasons)
+        mode_would_block = self.mode in {"enforce", "guard"} and level in ({"high", "critical"} if self.mode == "enforce" else {"critical"})
+        would_block = hard or policy_action in {"block", "review"} or (policy_action not in {"allow", "review"} and mode_would_block)
+        should_block = hard or policy_action == "block" or (policy_action not in {"allow", "review"} and mode_would_block)
+        blocked = should_block and self.mode != "observe" and self.mode != "shadow"
         if blocked:
             self.blocked += 1
         decision = Decision(not blocked, min(score, 1.0), "block" if blocked else ("would-block" if would_block else "allow"), reasons or ["normal-behavior"], level, ml_probability=ml_probability, signals=signals or {}, profile=profile)
@@ -317,7 +323,7 @@ class Guard:
 
     def status(self) -> dict:
         with self._lock:
-            return {"mode": self.mode, "observed": self.count, "blocked": self.blocked, "events": len(self.events), "feedback_count": self.feedback_count, "ml_model": "online-logistic + isolation-forest-lite", "profiles": len(self._profiles), "metrics": self.metrics_dict(), "levels": {level: sum(event["level"] == level for event in self.events) for level in ("normal", "medium", "high", "critical")}}
+            return {"mode": self.mode, "observed": self.count, "blocked": self.blocked, "events": len(self.events), "feedback_count": self.feedback_count, "ml_model": "online-logistic + isolation-forest-lite", "profiles": len(self._profiles), "policy": self.policy.as_dict(), "metrics": self.metrics_dict(), "levels": {level: sum(event["level"] == level for event in self.events) for level in ("normal", "medium", "high", "critical")}}
 
     def recent_events(self) -> list[dict]:
         with self._lock:

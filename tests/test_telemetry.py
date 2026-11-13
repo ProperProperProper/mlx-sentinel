@@ -6,6 +6,8 @@ from mlx_sentinel.telemetry import Guard, KVStats
 from mlx_sentinel.resources import ResourceGovernor
 from mlx_sentinel.config import Settings
 from mlx_sentinel.metrics import Metrics, RateLimiter
+from mlx_sentinel.policy import Policy
+from mlx_sentinel.models import ModelRegistry
 
 
 class TelemetryTests(unittest.TestCase):
@@ -87,6 +89,22 @@ class TelemetryTests(unittest.TestCase):
         output = metrics.prometheus()
         self.assertIn("mlx_sentinel_requests_total 2", output)
         self.assertIn("mlx_sentinel_blocked_total 1", output)
+
+    def test_policy_defaults_and_model_registry_are_safe(self):
+        policy = Policy()
+        self.assertEqual(policy.action_for(["prompt-injection-pattern"]), "block")
+        registry = ModelRegistry("example/model", "other/model")
+        self.assertEqual([item.model_id for item in registry.list()], ["example/model", "other/model"])
+
+    def test_review_policy_does_not_block(self):
+        with tempfile.TemporaryDirectory() as directory:
+            guard = Guard("enforce", model_path=f"{directory}/model.json", journal_path=f"{directory}/events.jsonl")
+            guard.policy = Policy(high_kv_anomaly="review")
+            for _ in range(25):
+                guard.inspect(KVStats("test", 2, 16, 1.0, 4.0))
+            decision = guard.inspect(KVStats("test", 2, 16, 1.0, 1000.0))
+            self.assertTrue(decision.allowed)
+            self.assertEqual(decision.action, "would-block")
 
 
 if __name__ == "__main__":

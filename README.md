@@ -3,7 +3,7 @@
 
 True KV-cache analysis and response security for MLX inference on Apple Silicon.
 
-MLX Sentinel runs generation through `mlx_lm.generate_step`, inspects the real `KVCache` tensors, computes privacy-preserving aggregate statistics, scores the request and response, and returns an OpenAI-compatible response with security metadata. It also provides a web dashboard and intrusion-prevention policy.
+MLX Sentinel runs generation through `mlx_lm.generate_step`, inspects the real `KVCache` tensors, computes privacy-preserving aggregate statistics, scores the request and response, and returns an OpenAI-compatible response with security metadata. It also provides a web dashboard and security policy.
 
 The detector uses adaptive, model-specific baselines rather than a fixed norm threshold. This matters on Apple Silicon because legitimate models and quantizations can produce very different KV magnitudes. An ensemble combines hard rules, adaptive z-scores, a dependency-free online isolation detector, latency/context signals, and a local online logistic model. The learned model is stored locally under `~/Library/Application Support/MLX Sentinel/model.json`; raw prompts and KV tensors are not stored by this component.
 
@@ -96,7 +96,7 @@ MLX_SENTINEL_MODE=enforce   # block all configured high-risk anomalies
 
 `observe` is the safe rollout mode. Use held-out benign traffic and adversarial tests before enabling blocking.
 
-Open `http://127.0.0.1:8081/` for the dashboard. It shows normal, medium, high, and critical alert counts, block counts, current mode, and recent events. Expand any alert to inspect its event ID, score, ML probability, feature vector, and reasons. Label reviewed KV events as benign or malicious; labels train the local model and are persisted locally. The IPS inspects prompts before generation and KV statistics after generation. Critical prompt injection/jailbreak signals are hard-blocked in every mode; high and critical KV anomalies are blocked in `enforce` mode.
+Open `http://127.0.0.1:8081/` for the dashboard. It shows normal, medium, high, and critical alert counts, block counts, current mode, and recent events. Expand any alert to inspect its event ID, score, ML probability, feature vector, and reasons. Label reviewed KV events as benign or malicious; labels train the local model and are persisted locally. The security monitor inspects prompts before generation and KV statistics after generation. Critical prompt injection/jailbreak signals are hard-blocked in every mode; high and critical KV anomalies are blocked in `enforce` mode.
 
 ## Mac thermal and resource protection
 
@@ -149,6 +149,21 @@ All settings can be provided as environment variables or overridden by the match
 | `MLX_SENTINEL_RATE_WINDOW` | `60` | Rate-limit window in seconds |
 | `MLX_SENTINEL_MAX_REQUEST_BYTES` | `4194304` | Maximum JSON request size |
 | `MLX_SENTINEL_CORS_ORIGIN` | disabled | Explicit browser origin |
+| `MLX_SENTINEL_POLICY_PATH` | disabled | JSON security policy file |
+| `MLX_SENTINEL_MODELS` | current model | Comma-separated model inventory |
+
+Example policy file:
+
+```json
+{
+  "prompt_injection": "block",
+  "destructive_tools": "block",
+  "suspicious_processes": "review",
+  "high_kv_anomaly": "review"
+}
+```
+
+Each policy action is `block`, `review`, or `allow`. The active policy is visible through `/api/config`; model inventory and local cache status are available through `/api/models`. Sentinel never downloads models automatically.
 
 ## Shadow mode and replay
 
