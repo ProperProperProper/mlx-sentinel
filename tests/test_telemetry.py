@@ -1,4 +1,5 @@
 import math
+import tempfile
 import unittest
 
 from mlx_sentinel.telemetry import Guard, KVStats
@@ -32,9 +33,10 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(decision.alert_level, "critical")
 
     def test_feedback_is_recorded_for_ml_review(self):
-        guard = Guard("guard")
-        event = guard.inspect(KVStats("test", 2, 16, 1.0, 101.0))
-        result = guard.feedback(event.event_id, "benign")
+        with tempfile.TemporaryDirectory() as directory:
+            guard = Guard("guard", model_path=f"{directory}/model.json", journal_path=f"{directory}/events.jsonl")
+            event = guard.inspect(KVStats("test", 2, 16, 1.0, 101.0))
+            result = guard.feedback(event.event_id, "benign")
         self.assertEqual(result["feedback"], "benign")
         self.assertEqual(guard.recent_events()[0]["feedback"], "benign")
 

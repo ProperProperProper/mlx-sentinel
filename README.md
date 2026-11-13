@@ -7,6 +7,13 @@ MLX Sentinel runs generation through `mlx_lm.generate_step`, inspects the real `
 
 The detector uses adaptive, model-specific baselines rather than a fixed norm threshold. This matters on Apple Silicon because legitimate models and quantizations can produce very different KV magnitudes. An ensemble combines hard rules, adaptive z-scores, a dependency-free online isolation detector, latency/context signals, and a local online logistic model. The learned model is stored locally under `~/Library/Application Support/MLX Sentinel/model.json`; raw prompts and KV tensors are not stored by this component.
 
+For a service account or test environment, override the local persistence files:
+
+```sh
+export MLX_SENTINEL_MODEL_PATH="$PWD/.sentinel/model.json"
+export MLX_SENTINEL_JOURNAL_PATH="$PWD/.sentinel/events.jsonl"
+```
+
 ## Why it exists
 
 Prompt and response filters miss attacks that are hidden, indirect, or expressed through model behavior. MLX Sentinel watches the actual local inference cache:
@@ -120,9 +127,9 @@ curl -X POST http://127.0.0.1:8081/api/replay \\
 
 `/api/status` reports model-profile count plus labeled precision, recall, F1, true/false positives, and true/false negatives. These metrics only become meaningful after reviewed labels are collected; Sentinel does not claim accuracy from unlabeled traffic.
 
-## Thomas AI integration
+## Multi-Model AI Gateway integration
 
-Thomas AI can consume the aggregate telemetry through its `/api/security/kv` endpoint. Set:
+Multi-Model AI Gateway can consume the aggregate telemetry through its `/api/security/kv` endpoint. Set:
 
 ```sh
 export MLX_SENTINEL_SECURITY_URL=http://127.0.0.1:8788/api/security/kv

@@ -102,7 +102,7 @@ class IsolationForestLite:
 class Guard:
     """Hybrid IPS with per-model baselines, ensemble scoring, local ML and replay."""
 
-    def __init__(self, mode: str = "guard") -> None:
+    def __init__(self, mode: str = "guard", model_path: str | None = None, journal_path: str | None = None) -> None:
         self.mode = mode
         self.count = 0
         self.blocked = 0
@@ -112,8 +112,8 @@ class Guard:
         self.metrics = {"tp": 0, "tn": 0, "fp": 0, "fn": 0}
         self._weights = [0.0] * 7
         self._profiles: dict[str, dict] = {}
-        self.model_path = os.path.expanduser("~/Library/Application Support/MLX Sentinel/model.json")
-        self.journal_path = os.path.expanduser("~/Library/Application Support/MLX Sentinel/events.jsonl")
+        self.model_path = os.path.expanduser(model_path or os.environ.get("MLX_SENTINEL_MODEL_PATH", "~/Library/Application Support/MLX Sentinel/model.json"))
+        self.journal_path = os.path.expanduser(journal_path or os.environ.get("MLX_SENTINEL_JOURNAL_PATH", "~/Library/Application Support/MLX Sentinel/events.jsonl"))
         self._load_model()
 
     @staticmethod
