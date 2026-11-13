@@ -7,3 +7,4 @@ dependencies = ["mlx", "mlx-lm"]
 
 [project.scripts]
 mlx-sentinel = "mlx_sentinel.server:main"
+mlx-sentinel-doctor = "mlx_sentinel.cli:main"

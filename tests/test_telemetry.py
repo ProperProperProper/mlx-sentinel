@@ -4,6 +4,8 @@ import unittest
 
 from mlx_sentinel.telemetry import Guard, KVStats
 from mlx_sentinel.resources import ResourceGovernor
+from mlx_sentinel.config import Settings
+from mlx_sentinel.metrics import Metrics, RateLimiter
 
 
 class TelemetryTests(unittest.TestCase):
@@ -68,6 +70,23 @@ class TelemetryTests(unittest.TestCase):
         self.assertIn("allowed", result)
         self.assertIn("load1", result)
         self.assertIn("thermal", result)
+
+    def test_settings_have_safe_local_defaults(self):
+        settings = Settings.from_env()
+        self.assertEqual(settings.host, "127.0.0.1")
+        self.assertEqual(settings.mode, "guard")
+        self.assertIsNone(settings.api_key)
+
+    def test_rate_limiter_and_metrics(self):
+        limiter = RateLimiter(1, 60)
+        self.assertTrue(limiter.allow("client"))
+        self.assertFalse(limiter.allow("client"))
+        metrics = Metrics()
+        metrics.observe(200, 12.5)
+        metrics.observe(403, 20.0)
+        output = metrics.prometheus()
+        self.assertIn("mlx_sentinel_requests_total 2", output)
+        self.assertIn("mlx_sentinel_blocked_total 1", output)
 
 
 if __name__ == "__main__":

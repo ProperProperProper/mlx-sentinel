@@ -34,6 +34,21 @@ python3 -m venv .venv
 pip install mlx mlx-lm
 ```
 
+Check the host before starting the service:
+
+```sh
+mlx-sentinel-doctor
+```
+
+For a shared local network or reverse proxy, configure an API key. Authentication is disabled by default for loopback-only development:
+
+```sh
+export MLX_SENTINEL_API_KEY='replace-with-a-long-random-secret'
+export MLX_SENTINEL_CORS_ORIGIN='https://your-console.example'
+export MLX_SENTINEL_RATE_LIMIT=60
+export MLX_SENTINEL_RATE_WINDOW=60
+```
+
 ## Run
 
 ```sh
@@ -66,6 +81,10 @@ The response includes:
   }
 }
 ```
+
+Use `Authorization: Bearer $MLX_SENTINEL_API_KEY` or `X-API-Key` for protected API requests. `/health` remains available for service supervisors. Prometheus-compatible metrics are available at `/api/metrics`, and effective non-secret configuration is available at `/api/config`.
+
+Set `"stream": true` on a chat request to receive an OpenAI-compatible server-sent event response. Generation remains protected by the single local inference slot and all security checks complete before the stream begins.
 
 ## Modes
 
@@ -114,6 +133,22 @@ curl -X POST http://127.0.0.1:8081/api/process/check \\
 ```
 
 Both checks produce the same detailed event format and hard-block destructive or suspicious activity. For macOS-wide process telemetry, connect an authorized Endpoint Security or audit client to this endpoint; the core remains usable without privileged entitlements.
+
+## Configuration
+
+All settings can be provided as environment variables or overridden by the matching command-line option:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `MLX_SENTINEL_MODEL` | `mlx-community/Qwen3-0.6B-4bit` | Local MLX model |
+| `MLX_SENTINEL_HOST` | `127.0.0.1` | Bind address |
+| `MLX_SENTINEL_PORT` | `8081` | HTTP port |
+| `MLX_SENTINEL_MAX_TOKENS` | `512` | Generation ceiling |
+| `MLX_SENTINEL_API_KEY` | disabled | API authentication secret |
+| `MLX_SENTINEL_RATE_LIMIT` | `60` | Requests per client window |
+| `MLX_SENTINEL_RATE_WINDOW` | `60` | Rate-limit window in seconds |
+| `MLX_SENTINEL_MAX_REQUEST_BYTES` | `4194304` | Maximum JSON request size |
+| `MLX_SENTINEL_CORS_ORIGIN` | disabled | Explicit browser origin |
 
 ## Shadow mode and replay
 
