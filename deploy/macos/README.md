@@ -2,14 +2,14 @@
 
 The reference Mac runs MLX Sentinel as `com.mlx-sentinel` with `KeepAlive` enabled.
 
-The local deployment uses:
+The deployment uses:
 
 ```text
-/Users/local.local/Projects/TradingSystem/scripts/start_mlx_sentinel.sh
-/Users/local.local/Library/LaunchAgents/com.mlx-sentinel.plist
+path/to/mlx-sentinel/scripts/start_mlx_sentinel.sh
+~/Library/LaunchAgents/com.mlx-sentinel.plist
 ```
 
-For another Mac, copy the templates, replace the repository and Python paths, then load the agent:
+Copy the templates, replace the repository and Python paths for the target Mac, then load the agent:
 
 ```sh
 launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/com.mlx-sentinel.plist"
