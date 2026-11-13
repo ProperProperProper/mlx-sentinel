@@ -2,6 +2,7 @@ import math
 import unittest
 
 from mlx_sentinel.telemetry import Guard, KVStats
+from mlx_sentinel.resources import ResourceGovernor
 
 
 class TelemetryTests(unittest.TestCase):
@@ -58,6 +59,13 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(result["mode"], "shadow")
         self.assertEqual(result["replayed"], 1)
         self.assertTrue(guard.recent_events()[0]["action"] in {"allow", "would-block"})
+
+    def test_resource_governor_reports_safe_admission(self):
+        governor = ResourceGovernor(max_load=10_000, cooldown_seconds=0)
+        result = governor.check(force=True)
+        self.assertIn("allowed", result)
+        self.assertIn("load1", result)
+        self.assertIn("thermal", result)
 
 
 if __name__ == "__main__":

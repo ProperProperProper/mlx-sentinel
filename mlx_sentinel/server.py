@@ -14,6 +14,7 @@ from mlx_lm.generate import generate_step
 from mlx_lm.models.cache import make_prompt_cache
 
 from .telemetry import Guard, KVStats
+from .resources import ResourceGovernor
 
 DASHBOARD = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>MLX Sentinel</title><style>body{font:15px system-ui;background:#0b1110;color:#eef5ef;max-width:1200px;margin:30px auto;padding:0 20px}h1{font-size:38px}.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.card{background:#14201c;border:1px solid #355247;border-radius:12px;padding:18px;margin:12px 0}.normal{color:#77e0ad}.medium{color:#f4d36b}.high{color:#ffad5c}.critical{color:#ff7180}table{width:100%;border-collapse:collapse;margin-top:20px}td,th{padding:10px;border-bottom:1px solid #30433a;text-align:left;vertical-align:top}button{background:#233d32;color:#eef5ef;border:1px solid #58806b;border-radius:6px;padding:6px;margin:2px;cursor:pointer}pre{white-space:pre-wrap;background:#0b1511;border-radius:8px;padding:10px;color:#c8ded1}small{color:#9db0a6}.detail{display:none}.detail.open{display:table-row}.evidence{min-width:220px}@media(max-width:700px){.grid{grid-template-columns:repeat(2,1fr)}table{font-size:12px}.hide-mobile{display:none}}</style></head><body><h1>MLX Sentinel</h1><p><small>True MLX KV-cache analysis, adaptive ML false-positive filtering, and response intrusion prevention</small></p><div id='cards' class='grid'></div><div class='card'><h2>High/critical review queue</h2><p><small>Expand an alert to inspect the evidence before labeling it. Labels train the local online model.</small></p><table><thead><tr><th>Time</th><th>Level</th><th>Score</th><th>Action</th><th class='evidence'>Evidence</th><th>Review</th></tr></thead><tbody id='events'></tbody></table></div><script>const esc=x=>String(x??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));async function label(id,label){await fetch('/api/feedback',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event_id:id,label})});refresh()}function toggle(id){document.getElementById('d-'+id).classList.toggle('open')}async function refresh(){let s=await (await fetch('/api/status')).json();let e=await (await fetch('/api/events')).json();let levels=['normal','medium','high','critical'];document.querySelector('#cards').innerHTML=levels.map(x=>`<div class='card'><div class='${x}'>${x.toUpperCase()}</div><h2>${s.levels[x]||0}</h2></div>`).join('')+`<div class='card'><small>Mode / blocked</small><h2>${s.mode} / ${s.blocked}</h2><small>ML labels: ${s.feedback_count}</small></div>`;let rows='';for(const x of e.events){let detail=JSON.stringify({event_id:x.event_id,score:x.score,ml_probability:x.ml_probability,features:x.features,reasons:x.reasons,feedback:x.feedback},null,2);rows+=`<tr><td>${new Date(x.timestamp*1000).toLocaleTimeString()}</td><td class='${x.level}'>${esc(x.level)}</td><td>${Number(x.score).toFixed(2)}</td><td>${esc(x.action)}</td><td>${x.reasons.map(esc).join(', ')}</td><td><button onclick="toggle('${x.event_id}')">Inspect</button>${x.features?`<button onclick="label('${x.event_id}','benign')">Benign</button><button onclick="label('${x.event_id}','malicious')">Malicious</button>`:''}</td></tr><tr id='d-${x.event_id}' class='detail'><td colspan='6'><pre>${esc(detail)}</pre><small>Interpretation: score combines hard safety rules, adaptive KV baselines, and (after feedback) the local ML probability. Prompt injection and invalid telemetry remain hard blocks.</small></td></tr>`}document.querySelector('#events').innerHTML=rows}refresh();setInterval(refresh,2000)</script></body></html>"""
 
@@ -28,8 +29,10 @@ class Engine:
         self.max_tokens = max_tokens
         self.model, self.tokenizer = load(model)
         self.guard = Guard(mode)
+        self.resources = ResourceGovernor(max_load=float(os.environ["MLX_SENTINEL_MAX_LOAD"]) if os.environ.get("MLX_SENTINEL_MAX_LOAD") else None)
         self.security_url = security_url
         self.lock = threading.Lock()
+        self.admission = threading.BoundedSemaphore(1)
 
     def complete(self, messages: list[dict], max_tokens: int) -> tuple[str, KVStats, float]:
         prompt = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages)
@@ -90,7 +93,9 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/health":
             self.send_json(200, {"ok": True, "service": "MLX Sentinel", "model": self.engine.model_id})
         elif self.path == "/api/status":
-            self.send_json(200, {"service": "MLX Sentinel", "model": self.engine.model_id, **self.engine.guard.status()})
+            self.send_json(200, {"service": "MLX Sentinel", "model": self.engine.model_id, "resources": self.engine.resources.check(), **self.engine.guard.status()})
+        elif self.path == "/api/resources":
+            self.send_json(200, self.engine.resources.check(force=True))
         elif self.path == "/api/events":
             self.send_json(200, {"events": self.engine.guard.recent_events()})
         else:
@@ -137,7 +142,17 @@ class Handler(BaseHTTPRequestHandler):
             if not preflight.allowed:
                 self.send_json(403, {"error": {"message": "request blocked by MLX Sentinel IPS", "security": preflight.__dict__}})
                 return
-            text, stats, latency = self.engine.complete(body.get("messages", []), int(body.get("max_tokens", self.engine.max_tokens)))
+            resources = self.engine.resources.check()
+            if not resources["allowed"]:
+                self.send_json(429, {"error": {"message": "MLX Sentinel paused inference to protect the Mac", "resources": resources}})
+                return
+            if not self.engine.admission.acquire(blocking=False):
+                self.send_json(429, {"error": {"message": "MLX Sentinel is at its safe inference concurrency limit", "resources": self.engine.resources.check()}})
+                return
+            try:
+                text, stats, latency = self.engine.complete(body.get("messages", []), int(body.get("max_tokens", self.engine.max_tokens)))
+            finally:
+                self.engine.admission.release()
             local = self.engine.guard.inspect(stats, {"prompt_chars": len(prompt), "output_chars": len(text), "latency_ms": latency})
             external = self.engine.external_decision(stats)
             external_decision = external.get("decision", {}) if external else {}

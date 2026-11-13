@@ -72,6 +72,18 @@ MLX_SENTINEL_MODE=enforce   # block all configured high-risk anomalies
 
 Open `http://127.0.0.1:8081/` for the dashboard. It shows normal, medium, high, and critical alert counts, block counts, current mode, and recent events. Expand any alert to inspect its event ID, score, ML probability, feature vector, and reasons. Label reviewed KV events as benign or malicious; labels train the local model and are persisted locally. The IPS inspects prompts before generation and KV statistics after generation. Critical prompt injection/jailbreak signals are hard-blocked in every mode; high and critical KV anomalies are blocked in `enforce` mode.
 
+## Mac thermal and resource protection
+
+Inference is admission-controlled so requests cannot pile up behind the MLX model. Sentinel permits one generation at a time, checks load average, macOS thermal throttling (`pmset -g therm`), and memory pressure before each generation, and returns HTTP 429 while the Mac is under pressure. Monitoring and the dashboard remain available during a pause. Resource state is available at `/api/resources` and in `/api/status`.
+
+The default load ceiling is 75% of logical CPU count. Override it only when you have measured safe behavior:
+
+```sh
+export MLX_SENTINEL_MAX_LOAD=6
+```
+
+Keep `max_tokens` bounded for long-running services. The local deployment uses a single inference slot by design to protect Apple Silicon unified memory and thermals.
+
 The review API is also available for automation:
 
 ```sh

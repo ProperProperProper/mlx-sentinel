@@ -6,4 +6,8 @@
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>10</integer>
+  <key>EnvironmentVariables</key><dict>
+    <key>MLX_SENTINEL_MODE</key><string>guard</string>
+    <key>MLX_SENTINEL_MAX_LOAD</key><string>0</string>
+  </dict>
 </dict></plist>
