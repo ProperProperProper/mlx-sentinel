@@ -199,7 +199,12 @@ rust-guard/
 └── Cargo.toml
 tests/
 └── test_telemetry.py
+examples/
+├── python_client.py
+└── typescript_client.ts
 ```
+
+The standard-library Python client and dependency-free TypeScript example in `examples/` demonstrate authenticated and unauthenticated local usage.
 
 ## Limitations
 
