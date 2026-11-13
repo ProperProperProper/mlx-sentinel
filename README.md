@@ -4,6 +4,8 @@ True KV-cache analysis and response security for MLX inference on Apple Silicon.
 
 MLX Sentinel runs generation through `mlx_lm.generate_step`, inspects the real `KVCache` tensors, computes privacy-preserving aggregate statistics, scores the request and response, and returns an OpenAI-compatible response with security metadata. It also provides a web dashboard and intrusion-prevention policy.
 
+The detector uses adaptive baselines rather than a fixed norm threshold. This matters on Apple Silicon because legitimate models can produce very different KV magnitudes. A small local online logistic model can also learn from dashboard review labels (`benign` or `malicious`) and reduce repeated false positives. The learned model is stored locally under `~/Library/Application Support/MLX Sentinel/model.json`; raw prompts and KV tensors are not stored by this component.
+
 ## Why it exists
 
 Prompt and response filters miss attacks that are hidden, indirect, or expressed through model behavior. MLX Sentinel watches the actual local inference cache:
@@ -67,7 +69,15 @@ MLX_SENTINEL_MODE=enforce   # block all configured high-risk anomalies
 
 `observe` is the safe rollout mode. Use held-out benign traffic and adversarial tests before enabling blocking.
 
-Open `http://127.0.0.1:8081/` for the dashboard. It shows normal, medium, high, and critical alert counts, block counts, current mode, and recent events. The IPS inspects prompts before generation and KV statistics after generation. Critical prompt injection/jailbreak signals are blocked in `guard` mode; high and critical KV anomalies are blocked in `enforce` mode.
+Open `http://127.0.0.1:8081/` for the dashboard. It shows normal, medium, high, and critical alert counts, block counts, current mode, and recent events. Expand any alert to inspect its event ID, score, ML probability, feature vector, and reasons. Label reviewed KV events as benign or malicious; labels train the local model and are persisted locally. The IPS inspects prompts before generation and KV statistics after generation. Critical prompt injection/jailbreak signals are hard-blocked in every mode; high and critical KV anomalies are blocked in `enforce` mode.
+
+The review API is also available for automation:
+
+```sh
+curl -X POST http://127.0.0.1:8081/api/feedback \\
+  -H 'content-type: application/json' \\
+  -d '{"event_id":"EVENT_ID_FROM_API_EVENTS","label":"benign"}'
+```
 
 ## Thomas AI integration
 
