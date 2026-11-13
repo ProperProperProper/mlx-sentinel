@@ -1,4 +1,5 @@
 # MLX Sentinel
+<img width="1058" height="590" alt="Screenshot 2026-11-13 at 5 18 40 PM" src="https://github.com/user-attachments/assets/928701fa-4c7a-4237-904b-58ecd90bdfab" />
 
 True KV-cache analysis and response security for MLX inference on Apple Silicon.
 
