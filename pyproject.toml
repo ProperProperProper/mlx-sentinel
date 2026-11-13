@@ -1,0 +1,9 @@
+[project]
+name = "mlx-sentinel"
+version = "0.1.0"
+description = "True MLX KV-cache analysis and response security for Apple Silicon"
+requires-python = ">=3.9"
+dependencies = ["mlx", "mlx-lm"]
+
+[project.scripts]
+mlx-sentinel = "mlx_sentinel.server:main"
