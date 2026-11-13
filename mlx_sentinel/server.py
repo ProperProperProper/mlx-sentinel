@@ -35,7 +35,11 @@ class Engine:
         self.admission = threading.BoundedSemaphore(1)
 
     def complete(self, messages: list[dict], max_tokens: int) -> tuple[str, KVStats, float]:
-        prompt = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages)
+        normalized = [{"role": str(m.get("role", "user")), "content": str(m.get("content", ""))} for m in messages]
+        try:
+            prompt = self.tokenizer.apply_chat_template(normalized, tokenize=False, add_generation_prompt=True, chat_template_kwargs={"enable_thinking": False})
+        except (AttributeError, TypeError, ValueError):
+            prompt = "\n".join(f"{m['role']}: {m['content']}" for m in normalized) + "\nassistant:"
         tokens = self.tokenizer.encode(prompt, add_special_tokens=True)
         cache = make_prompt_cache(self.model)
         generated: list[int] = []
@@ -98,6 +102,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, self.engine.resources.check(force=True))
         elif self.path == "/api/events":
             self.send_json(200, {"events": self.engine.guard.recent_events()})
+        elif self.path == "/v1/models":
+            self.send_json(200, {"object": "list", "data": [{"id": self.engine.model_id, "object": "model", "owned_by": "mlx-sentinel"}]})
         else:
             self.send_json(404, {"error": "not found"})
 
