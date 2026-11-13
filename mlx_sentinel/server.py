@@ -104,6 +104,29 @@ class Handler(BaseHTTPRequestHandler):
             except (KeyError, ValueError) as error:
                 self.send_json(400, {"error": str(error)})
             return
+        if self.path == "/api/tool/check":
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("content-length", "0"))))
+                decision = self.engine.guard.inspect_tool(str(body.get("name", "unknown")), body.get("arguments", {}))
+                self.send_json(200, {"decision": decision.__dict__})
+            except (TypeError, ValueError) as error:
+                self.send_json(400, {"error": str(error)})
+            return
+        if self.path == "/api/process/check":
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("content-length", "0"))))
+                decision = self.engine.guard.inspect_process(str(body.get("executable", "unknown")), str(body.get("command_line", "")))
+                self.send_json(200, {"decision": decision.__dict__})
+            except (TypeError, ValueError) as error:
+                self.send_json(400, {"error": str(error)})
+            return
+        if self.path == "/api/replay":
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("content-length", "0"))))
+                self.send_json(200, self.engine.guard.replay(body.get("events", []), str(body.get("mode", "shadow"))))
+            except (TypeError, ValueError) as error:
+                self.send_json(400, {"error": str(error)})
+            return
         if self.path != "/v1/chat/completions":
             self.send_json(404, {"error": "not found"})
             return
@@ -115,7 +138,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(403, {"error": {"message": "request blocked by MLX Sentinel IPS", "security": preflight.__dict__}})
                 return
             text, stats, latency = self.engine.complete(body.get("messages", []), int(body.get("max_tokens", self.engine.max_tokens)))
-            local = self.engine.guard.inspect(stats)
+            local = self.engine.guard.inspect(stats, {"prompt_chars": len(prompt), "output_chars": len(text), "latency_ms": latency})
             external = self.engine.external_decision(stats)
             external_decision = external.get("decision", {}) if external else {}
             allowed = local.allowed and external_decision.get("allowed", True)
@@ -136,7 +159,7 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8081)
     parser.add_argument("--max-tokens", type=int, default=512)
-    parser.add_argument("--mode", choices=["observe", "guard", "enforce"], default=os.environ.get("MLX_SENTINEL_MODE", "guard"))
+    parser.add_argument("--mode", choices=["observe", "shadow", "guard", "enforce"], default=os.environ.get("MLX_SENTINEL_MODE", "guard"))
     parser.add_argument("--security-url", default=os.environ.get("MLX_SENTINEL_SECURITY_URL"))
     args = parser.parse_args()
     Handler.engine = Engine(args.model, args.max_tokens, args.mode, args.security_url)

