@@ -5,6 +5,13 @@ description = "True MLX KV-cache analysis and response security for Apple Silico
 requires-python = ">=3.10"
 dependencies = ["mlx", "mlx-lm"]
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["mlx_sentinel*"]
+
 [project.scripts]
 mlx-sentinel = "mlx_sentinel.server:main"
 mlx-sentinel-doctor = "mlx_sentinel.cli:main"

@@ -65,7 +65,9 @@ class Engine:
             maxima: list[float] = []
             cache_tokens = 0
             for item in cache:
-                cache_tokens = max(cache_tokens, len(item))
+                cache_size = getattr(item, "size", getattr(item, "offset", 0))
+                cache_size = cache_size() if callable(cache_size) else cache_size
+                cache_tokens = max(cache_tokens, int(cache_size))
                 state = item.state
                 if not isinstance(state, (tuple, list)) or len(state) < 2:
                     continue

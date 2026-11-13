@@ -26,18 +26,17 @@ It never uploads raw KV tensors. It reports only cache-layer count, cache-token 
 
 ## Install
 
-Use the same Apple Silicon virtual environment as MLX-LM:
+The supported setup creates a project-local Python 3.12 environment and installs MLX-LM with the service:
 
 ```sh
-python3 -m venv .venv
-. .venv/bin/activate
-pip install mlx mlx-lm
+./scripts/setup_mlx_sentinel.sh
+source .venv/bin/activate
 ```
 
 Check the host before starting the service:
 
 ```sh
-mlx-sentinel-doctor
+.venv/bin/mlx-sentinel-doctor
 ```
 
 For a shared local network or reverse proxy, configure an API key. Authentication is disabled by default for loopback-only development:
