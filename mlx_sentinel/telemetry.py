@@ -11,6 +11,7 @@ import uuid
 from collections import deque
 
 from .policy import Policy
+from .agent_security import AgentSecurityGate
 
 
 @dataclass
@@ -107,6 +108,7 @@ class Guard:
     def __init__(self, mode: str = "guard", model_path: str | None = None, journal_path: str | None = None, policy_path: str | None = None) -> None:
         self.mode = mode
         self.policy = Policy.load(policy_path)
+        self.agent_security = AgentSecurityGate()
         self.count = 0
         self.blocked = 0
         self._lock = threading.RLock()
@@ -177,7 +179,8 @@ class Guard:
                 reasons.append("ml-benign-correction")
         level = self.level(score, reasons)
         policy_action = self.policy.action_for(reasons)
-        hard = policy_action == "block" and any("injection" in r or "jailbreak" in r or "invalid" in r or "blocked" in r for r in reasons)
+        agent_hard = any(r.startswith(("tool-not-explicitly-allowed", "agent-step-limit", "dangerous-", "import-not-allowed", "unbounded-loop", "code-operation-limit", "invalid-tool", "tool-arguments", "tool-output-")) for r in reasons)
+        hard = agent_hard or (policy_action == "block" and any("injection" in r or "jailbreak" in r or "invalid" in r or "blocked" in r for r in reasons))
         mode_would_block = self.mode in {"enforce", "guard"} and level in ({"high", "critical"} if self.mode == "enforce" else {"critical"})
         would_block = hard or policy_action in {"block", "review"} or (policy_action not in {"allow", "review"} and mode_would_block)
         should_block = hard or policy_action == "block" or (policy_action not in {"allow", "review"} and mode_would_block)
@@ -215,6 +218,19 @@ class Guard:
                 score += 0.25
                 reasons.append("prompt-length-anomaly")
             return self._finish(score, reasons, signals={"prompt_chars": len(text), "detector": "prompt-rules"})
+
+    def inspect_output(self, text: str) -> Decision:
+        """Treat generated text as untrusted when it may be fed to an agent."""
+        with self._lock:
+            lower = text.lower()
+            reasons, score = [], 0.0
+            if any(term in lower for term in ("ignore previous instructions", "ignore all instructions", "system prompt", "developer message")):
+                score += 0.9
+                reasons.append("output-prompt-injection")
+            if any(term in lower for term in ("authorization: bearer", "api key", "private key", "upload the contents", "exfiltrate")):
+                score += 0.9
+                reasons.append("output-sensitive-data-or-exfiltration")
+            return self._finish(score, reasons, signals={"detector": "output-rules", "output_chars": len(text)})
 
     def inspect(self, stats: KVStats, context: dict | None = None) -> Decision:
         with self._lock:
@@ -254,6 +270,7 @@ class Guard:
 
     def inspect_tool(self, name: str, arguments: object) -> Decision:
         with self._lock:
+            agent = self.agent_security.inspect_step(name, arguments, 1)
             text = f"{name} {json.dumps(arguments, default=str)}".lower()
             reasons, score = [], 0.0
             destructive = ("rm ", "delete", "unlink", "drop table", "force push", "shutdown", "kill ", "chmod 777")
@@ -264,7 +281,28 @@ class Guard:
             if any(term in text for term in sensitive):
                 reasons.append("sensitive-tool-call")
                 score += 0.4
-            return self._finish(score, reasons, signals={"detector": "tool-firewall", "tool": name, "arguments_type": type(arguments).__name__})
+            if not agent.allowed:
+                reasons.extend(agent.reasons)
+                score = max(score, 0.95)
+            return self._finish(score, reasons, signals={"detector": "tool-firewall", "agent_security": agent.__dict__, "tool": name, "arguments_type": type(arguments).__name__})
+
+    def inspect_code(self, source: str, allowed_imports: set[str] | None = None) -> Decision:
+        with self._lock:
+            result = self.agent_security.inspect_code(source, allowed_imports)
+            score = 0.95 if not result.allowed else 0.0
+            return self._finish(score, result.reasons, signals={"detector": "ast-code-firewall", "agent_security": result.__dict__})
+
+    def inspect_agent_step(self, name: str, arguments: object, step: int) -> Decision:
+        with self._lock:
+            result = self.agent_security.inspect_step(name, arguments, step)
+            score = 0.95 if not result.allowed else 0.0
+            return self._finish(score, result.reasons, signals={"detector": "agent-step-firewall", "agent_security": result.__dict__})
+
+    def inspect_tool_output(self, text: str) -> Decision:
+        with self._lock:
+            result = self.agent_security.inspect_output(text)
+            score = 0.95 if not result.allowed else 0.0
+            return self._finish(score, result.reasons, signals={"detector": "tool-output-firewall", "agent_security": result.__dict__})
 
     def inspect_process(self, executable: str, command_line: str) -> Decision:
         with self._lock:
@@ -323,7 +361,7 @@ class Guard:
 
     def status(self) -> dict:
         with self._lock:
-            return {"mode": self.mode, "observed": self.count, "blocked": self.blocked, "events": len(self.events), "feedback_count": self.feedback_count, "ml_model": "online-logistic + isolation-forest-lite", "profiles": len(self._profiles), "policy": self.policy.as_dict(), "metrics": self.metrics_dict(), "levels": {level: sum(event["level"] == level for event in self.events) for level in ("normal", "medium", "high", "critical")}}
+            return {"mode": self.mode, "observed": self.count, "blocked": self.blocked, "events": len(self.events), "feedback_count": self.feedback_count, "ml_model": "online-logistic + isolation-forest-lite", "profiles": len(self._profiles), "policy": self.policy.as_dict(), "agent_security": {"max_steps": self.agent_security.max_steps, "max_code_nodes": self.agent_security.max_code_nodes, "allowed_tools": sorted(self.agent_security.allowed_tools), "code_execution": "disabled-by-default"}, "metrics": self.metrics_dict(), "levels": {level: sum(event["level"] == level for event in self.events) for level in ("normal", "medium", "high", "critical")}}
 
     def recent_events(self) -> list[dict]:
         with self._lock:

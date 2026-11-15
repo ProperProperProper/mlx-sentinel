@@ -1,4 +1,10 @@
 # MLX Sentinel
+
+The managed local service runs in `enforce` mode. It blocks prompt-injection,
+destructive, suspicious-process, invalid-KV, and sensitive-output findings. Its
+policy is defined in `../security/mlx-sentinel-policy.json`; generated text is
+treated as untrusted when it contains instructions that could be fed into an
+agent or used for data exfiltration.
 <img width="1058" height="590" alt="Screenshot 2026-11-13 at 5 18 40 PM" src="https://github.com/user-attachments/assets/928701fa-4c7a-4237-904b-58ecd90bdfab" />
 
 True KV-cache analysis and response security for MLX inference on Apple Silicon.
@@ -132,6 +138,28 @@ curl -X POST http://127.0.0.1:8081/api/process/check \\
 ```
 
 Both checks produce the same detailed event format and hard-block destructive or suspicious activity. For macOS-wide process telemetry, connect an authorized Endpoint Security or audit client to this endpoint; the core remains usable without privileged entitlements.
+
+## Hugging Face-style agent security
+
+Sentinel applies a deny-by-default gate around agent actions, based on the security model documented for Hugging Face `smolagents`: explicit tool permissions, bounded steps, AST validation before code execution, and treating tool output as untrusted. The local code checker rejects unauthorized imports, dangerous built-ins and attributes, unbounded `while` loops, oversized programs, and common prompt-injection or secret-exfiltration instructions.
+
+Check an agent step without executing it:
+
+```sh
+curl -X POST http://127.0.0.1:8081/api/agent/step \
+  -H 'content-type: application/json' \
+  -d '{"name":"read_file","arguments":{"path":"README.md"},"step":1}'
+```
+
+Check generated Python without executing it:
+
+```sh
+curl -X POST http://127.0.0.1:8081/api/code/check \
+  -H 'content-type: application/json' \
+  -d '{"source":"import os\\nos.system(\"whoami\")"}'
+```
+
+Tools are allowed only when listed in `MLX_SENTINEL_ALLOWED_TOOLS`; the default is empty. Safe imports default to `math`, `json`, and `statistics`, configurable with `MLX_SENTINEL_ALLOWED_IMPORTS`. Sentinel deliberately does not execute model-generated code. AST validation is only a first layer: Hugging Face also warns that local interpreters are not complete isolation, so high-risk execution must use a real container, VM, or equivalent sandbox.
 
 ## Configuration
 

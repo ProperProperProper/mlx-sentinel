@@ -243,6 +243,33 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError) as error:
                 self.send_json(400, {"error": str(error)})
             return
+        if path == "/api/agent/step":
+            try:
+                body = self.read_json_body()
+                decision = self.engine.guard.inspect_agent_step(str(body.get("name", "unknown")), body.get("arguments", {}), int(body.get("step", 1)))
+                self.send_json(200, {"decision": decision.__dict__})
+            except (TypeError, ValueError) as error:
+                self.send_json(400, {"error": str(error)})
+            return
+        if path == "/api/code/check":
+            try:
+                body = self.read_json_body()
+                imports = body.get("allowed_imports")
+                if imports is not None and (not isinstance(imports, list) or any(not isinstance(item, str) for item in imports)):
+                    raise ValueError("allowed_imports must be an array of strings")
+                decision = self.engine.guard.inspect_code(str(body.get("source", "")), set(imports) if imports is not None else None)
+                self.send_json(200, {"decision": decision.__dict__, "execution": "not performed"})
+            except (TypeError, ValueError) as error:
+                self.send_json(400, {"error": str(error)})
+            return
+        if path == "/api/tool/output/check":
+            try:
+                body = self.read_json_body()
+                decision = self.engine.guard.inspect_tool_output(str(body.get("text", "")))
+                self.send_json(200, {"decision": decision.__dict__})
+            except (TypeError, ValueError) as error:
+                self.send_json(400, {"error": str(error)})
+            return
         if path == "/api/process/check":
             try:
                 body = self.read_json_body()
@@ -281,13 +308,14 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 self.engine.admission.release()
             local = self.engine.guard.inspect(stats, {"prompt_chars": len(prompt), "output_chars": len(text), "latency_ms": latency})
+            output = self.engine.guard.inspect_output(text)
             external = self.engine.external_decision(stats)
             external_decision = external.get("decision", {}) if external else {}
-            allowed = local.allowed and external_decision.get("allowed", True)
+            allowed = local.allowed and output.allowed and external_decision.get("allowed", True)
             if not allowed:
-                self.send_json(403, {"error": {"message": "response blocked by MLX Sentinel security policy", "security": {"local": local.__dict__, "external": external}}, "_mlx_sentinel": {"kv": stats.__dict__, "latency_ms": latency}})
+                self.send_json(403, {"error": {"message": "response blocked by MLX Sentinel security policy", "security": {"local": local.__dict__, "output": output.__dict__, "external": external}}, "_mlx_sentinel": {"kv": stats.__dict__, "latency_ms": latency}})
                 return
-            response = {"id": "mlx-sentinel-chat", "object": "chat.completion", "model": self.engine.model_id, "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}], "_mlx_sentinel": {"kv": stats.__dict__, "preflight": preflight.__dict__, "decision": local.__dict__, "external_security": external, "latency_ms": latency}}
+            response = {"id": "mlx-sentinel-chat", "object": "chat.completion", "model": self.engine.model_id, "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}], "_mlx_sentinel": {"kv": stats.__dict__, "preflight": preflight.__dict__, "decision": local.__dict__, "output": output.__dict__, "external_security": external, "latency_ms": latency}}
             if body.get("stream") is True:
                 self.send_stream({"text": text})
             else:
