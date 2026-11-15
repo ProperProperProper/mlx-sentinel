@@ -1,0 +1,9 @@
+[package]
+name = "mlx-sentinel-guard"
+version = "0.1.0"
+edition = "2021"
+description = "Native Rust aggregate KV-cache anomaly guard"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
