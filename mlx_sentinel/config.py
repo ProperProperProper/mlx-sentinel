@@ -14,6 +14,7 @@ def _int(name: str, default: int, minimum: int = 0) -> int:
 @dataclass(frozen=True)
 class Settings:
     model: str
+    adapter_path: str | None
     host: str
     port: int
     max_tokens: int
@@ -33,6 +34,7 @@ class Settings:
             mode = "guard"
         return cls(
             model=os.environ.get("MLX_SENTINEL_MODEL", "mlx-community/Qwen3-0.6B-4bit"),
+            adapter_path=os.environ.get("MLX_SENTINEL_ADAPTER_PATH") or None,
             host=os.environ.get("MLX_SENTINEL_HOST", "127.0.0.1"),
             port=_int("MLX_SENTINEL_PORT", 8081, 1),
             max_tokens=_int("MLX_SENTINEL_MAX_TOKENS", 512, 1),

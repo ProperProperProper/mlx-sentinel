@@ -168,6 +168,7 @@ All settings can be provided as environment variables or overridden by the match
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MLX_SENTINEL_MODEL` | `mlx-community/Qwen3-0.6B-4bit` | Local MLX model |
+| `MLX_SENTINEL_ADAPTER_PATH` | disabled | Optional validated MLX-LM LoRA/DoRA adapter directory |
 | `MLX_SENTINEL_HOST` | `127.0.0.1` | Bind address |
 | `MLX_SENTINEL_PORT` | `8081` | HTTP port |
 | `MLX_SENTINEL_MAX_TOKENS` | `512` | Generation ceiling |
@@ -189,6 +190,26 @@ Example policy file:
   "high_kv_anomaly": "review"
 }
 ```
+
+### Optional learning adapters
+
+The small quantized model can use an MLX-LM LoRA/DoRA adapter without changing
+the base weights. Train adapters offline from reviewed, chronological data and
+evaluate them on a held-out set before loading one into the service:
+
+```sh
+python3 -m mlx_lm lora --model mlx-community/Qwen3-0.6B-4bit --train \
+  --data /path/to/reviewed_dataset --fine-tune-type lora \
+  --adapter-path /path/to/adapters/strategy-lab --iters 100
+MLX_SENTINEL_ADAPTER_PATH=/path/to/adapters/strategy-lab \
+  python3 -m mlx_sentinel.server --model mlx-community/Qwen3-0.6B-4bit \
+    --adapter-path /path/to/adapters/strategy-lab --mode guard
+```
+
+Adapters are opt-in. The live research loop does not train on its own output or
+on future market data; it only proposes mutations and lets the deterministic
+evaluator decide. Keep adapter artifacts outside Git and record the base model,
+dataset split, validation loss, and evaluation date alongside each adapter.
 
 Each policy action is `block`, `review`, or `allow`. The active policy is visible through `/api/config`; model inventory and local cache status are available through `/api/models`. Sentinel never downloads models automatically.
 

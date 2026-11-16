@@ -32,7 +32,7 @@ class Engine:
         security_url = settings.security_url
         self.model_id = model
         self.max_tokens = max_tokens
-        self.model, self.tokenizer = load(model)
+        self.model, self.tokenizer = load(model, adapter_path=settings.adapter_path)
         self.guard = Guard(mode, policy_path=settings.policy_path)
         self.resources = ResourceGovernor(max_load=float(os.environ["MLX_SENTINEL_MAX_LOAD"]) if os.environ.get("MLX_SENTINEL_MAX_LOAD") else None)
         self.security_url = security_url
@@ -92,8 +92,17 @@ class Engine:
                 mx.eval(keys, values)
                 means.extend([float(mx.mean(mx.abs(keys)).item()), float(mx.mean(mx.abs(values)).item())])
                 maxima.extend([float(mx.max(mx.abs(keys)).item()), float(mx.max(mx.abs(values)).item())])
+        text = self.tokenizer.decode(generated)
+        # Qwen-family checkpoints can emit reasoning delimiters even when the
+        # chat template disables thinking. Never expose that trace to callers;
+        # keep only the visible answer after a closed reasoning block.
+        if "</think>" in text:
+            text = text.split("</think>", 1)[1]
+        if "<think>" in text:
+            text = text.replace("<think>", "")
+        text = text.replace("<|im_end|>", "").strip()
         stats = KVStats(self.model_id, float(len(cache)), float(cache_tokens), sum(means) / len(means) if means else 0.0, max(maxima) if maxima else 0.0)
-        return self.tokenizer.decode(generated), stats, round((time.perf_counter() - started) * 1000, 1)
+        return text, stats, round((time.perf_counter() - started) * 1000, 1)
 
     def external_decision(self, stats: KVStats) -> dict | None:
         if not self.security_url:
@@ -228,7 +237,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(encoded)
         elif path == "/api/config":
-            self.send_json(200, {"model": self.engine.model_id, "mode": self.engine.settings.mode, "max_tokens": self.engine.max_tokens, "rate_limit": self.engine.settings.rate_limit, "rate_window": self.engine.settings.rate_window, "authentication": bool(self.engine.api_key), "cors": bool(self.engine.cors_origin), "policy_path": bool(self.engine.settings.policy_path), "policy": self.engine.guard.policy.as_dict()})
+            self.send_json(200, {"model": self.engine.model_id, "adapter_path": self.engine.settings.adapter_path, "mode": self.engine.settings.mode, "max_tokens": self.engine.max_tokens, "rate_limit": self.engine.settings.rate_limit, "rate_window": self.engine.settings.rate_window, "authentication": bool(self.engine.api_key), "cors": bool(self.engine.cors_origin), "policy_path": bool(self.engine.settings.policy_path), "policy": self.engine.guard.policy.as_dict()})
         elif path == "/v1/models":
             self.send_json(200, {"object": "list", "data": [{"id": self.engine.model_id, "object": "model", "owned_by": "mlx-sentinel"}]})
         else:
@@ -348,13 +357,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Local MLX inference security gateway")
     settings = Settings.from_env()
     parser.add_argument("--model", default=settings.model)
+    parser.add_argument("--adapter-path", default=settings.adapter_path)
     parser.add_argument("--host", default=settings.host)
     parser.add_argument("--port", type=int, default=settings.port)
     parser.add_argument("--max-tokens", type=int, default=settings.max_tokens)
     parser.add_argument("--mode", choices=["observe", "shadow", "guard", "enforce"], default=settings.mode)
     parser.add_argument("--security-url", default=settings.security_url)
     args = parser.parse_args()
-    settings = Settings(settings.model, args.host, args.port, args.max_tokens, args.mode, args.security_url, settings.policy_path, settings.api_key, settings.rate_limit, settings.rate_window, settings.cors_origin, settings.max_request_bytes)
+    settings = Settings(settings.model, args.adapter_path, args.host, args.port, args.max_tokens, args.mode, args.security_url, settings.policy_path, settings.api_key, settings.rate_limit, settings.rate_window, settings.cors_origin, settings.max_request_bytes)
     Handler.engine = Engine(settings)
     print(f"MLX Sentinel listening on http://{args.host}:{args.port}", flush=True)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
