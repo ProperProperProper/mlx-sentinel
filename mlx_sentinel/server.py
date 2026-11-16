@@ -56,8 +56,25 @@ class Engine:
         cache = make_prompt_cache(self.model)
         generated: list[int] = []
         started = time.perf_counter()
+        # Qwen3 can still choose its reasoning-start token when generation is
+        # driven manually, even though the chat template disables thinking.
+        # Suppress it at every generation step for bounded API calls so a
+        # controller response cannot enter a hidden reasoning segment later.
+        think_start = self.tokenizer.encode("<think>", add_special_tokens=False)
+        first_think_token = think_start[0] if think_start else None
+
+        def suppress_thinking_start(seen, logits):
+            if first_think_token is not None:
+                return logits.at[:, first_think_token].add(-1e9)
+            return logits
+
         with self.lock:
-            for token, _logprobs in generate_step(mx.array(tokens), self.model, max_tokens=min(max_tokens, self.max_tokens), prompt_cache=cache):
+            for token, _logprobs in generate_step(
+                mx.array(tokens), self.model,
+                max_tokens=min(max_tokens, self.max_tokens),
+                logits_processors=[suppress_thinking_start],
+                prompt_cache=cache,
+            ):
                 generated.append(int(token))
                 if token in getattr(self.tokenizer, "eos_token_ids", set()):
                     break
